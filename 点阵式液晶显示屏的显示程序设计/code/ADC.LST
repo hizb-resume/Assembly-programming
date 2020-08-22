@@ -1,0 +1,109 @@
+C51 COMPILER V8.08   ADC                                                                   07/06/2016 22:32:25 PAGE 1   
+
+
+C51 COMPILER V8.08, COMPILATION OF MODULE ADC
+OBJECT MODULE PLACED IN ADC.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\c51.exe ADC.c DB OE BR
+
+line level    source
+
+   1          #include "c8051F020.h"
+   2          #include <intrins.h>
+   3          /*
+   4                  压力应变片ADC试验
+   5                  运行此程序,压力值将在数码管上显示.用手触摸应变片
+   6                  观察压力变化.
+   7          */
+   8          #define MUX_TEMP                        0x08
+   9          #define MUX_VOLT                        0x01
+  10          #define MUX_PRESS                       0x02
+  11          unsigned int idata  Temp, Press, Volt;
+  12          unsigned char  idata mux_select;
+  13          sfr16 ADC0     = 0xbe;                 // ADC0 data
+  14          void init_adc(void)
+  15          {
+  16   1              ADC0CN = 0x81;                      // ADC0 enabled; normal tracking
+  17   1                                              // mode; ADC0 conversions are initiated 
+  18   1                                              // on write to AD0BUSY; ADC0 data is
+  19   1                                              // left-justified
+  20   1              REF0CN = 0x07;                      // enable temp sensor, on-chip VREF,
+  21   1                                              // and VREF output buffer
+  22   1              mux_select = MUX_TEMP;                          // CPU on-chip temp sensor
+  23   1              AMX0SL = MUX_TEMP;      
+  24   1      
+  25   1              ADC0CF = (SYSCLK/2500000) << 3;     // ADC conversion clock = 2.5MHz
+  26   1              //ADC0CF |= 0x01;                     // PGA gain = 2
+  27   1              EIE2 &= ~0x02;                      // disable ADC0 EOC interrupt
+  28   1              EIE1 &= ~0x04;                      // disable ADC0 window compare interrupt
+  29   1      }
+  30          //  On-chip temperature
+  31          //  AN1. 电位器
+  32          //  AN2. 应变片
+  33          void read_analog_inputs(void)
+  34          {
+  35   1              long temp_long;
+  36   1          AD0INT = 0;                      // clear conversion complete indicator
+  37   1          AD0BUSY = 1;                     // initiate conversion
+  38   1          while (AD0INT == 0);             // wait for conversion complete
+  39   1      switch (mux_select)
+  40   1              {
+  41   2                      case MUX_TEMP:
+  42   2                      temp_long = ADC0 - 42380/2;
+  43   2                          temp_long = (temp_long * 200L) / 156;
+  44   2                              Temp=temp_long;
+  45   2                              AMX0SL = MUX_VOLT;              // Select AIN1 for next read
+  46   2                              mux_select = MUX_VOLT;
+  47   2                      break;
+  48   2      
+  49   2                      case MUX_VOLT:
+  50   2                              temp_long = ADC0;
+  51   2                              Volt = 24*temp_long/655;
+  52   2                              AMX0SL = MUX_PRESS;             // Select on-chip temp sensor
+  53   2                              mux_select = MUX_PRESS;
+  54   2                      break;
+  55   2              
+C51 COMPILER V8.08   ADC                                                                   07/06/2016 22:32:25 PAGE 2   
+
+  56   2                      case MUX_PRESS:
+  57   2                              temp_long = ADC0;
+  58   2                              temp_long = 24*temp_long/655;
+  59   2                              Press = temp_long;
+  60   2                      AMX0SL = MUX_TEMP;       
+  61   2                      mux_select = MUX_TEMP;
+  62   2                      break;
+  63   2                      default:
+  64   2                      AMX0SL = MUX_TEMP;
+  65   2                      mux_select = MUX_TEMP;
+  66   2                      break;
+  67   2              }
+  68   1      }
+  69           unsigned int GetADCValue(char No)//采集数据
+  70          {
+  71   1              read_analog_inputs();
+  72   1              read_analog_inputs();
+  73   1              read_analog_inputs();
+  74   1              switch (No)
+  75   1              {
+  76   2                      case 1:
+  77   2                              return Temp;
+  78   2                      case 2:
+  79   2                              return Volt;
+  80   2                      case 3:
+  81   2                              if (Press<10) Press=0;
+  82   2                              return Press;
+  83   2              }
+  84   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    295    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----       5
+   IDATA SIZE       =      7    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

@@ -1,0 +1,39 @@
+
+BL51 BANKED LINKER/LOCATER V6.05 - SN: Eval Version
+COPYRIGHT KEIL ELEKTRONIK GmbH 1987 - 2007
+"C:\Users\hizengbiao\Desktop\Ôø±ë +Ê±ÖÓ+¼ÆËãÆ÷ok33\ADC.obj",
+"C:\Users\hizengbiao\Desktop\Ôø±ë +Ê±ÖÓ+¼ÆËãÆ÷ok33\ks0108.obj",
+"C:\Users\hizengbiao\Desktop\Ôø±ë +Ê±ÖÓ+¼ÆËãÆ÷ok33\main.obj",
+"C:\Users\hizengbiao\Desktop\Ôø±ë +Ê±ÖÓ+¼ÆËãÆ÷ok33\test7279.obj"  TO "C:\Users\hizengbiao\Desktop\Ôø±ë +Ê±ÖÓ+¼ÆËãÆ÷ok33\keshe" RS(256) PL(68) PW(78) 
+
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?_WRITESZ2?KS0108
+
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?_DISPBMP1?KS0108
+
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?CO?TEST7279
+
+******************************************************************************
+* RESTRICTED VERSION WITH 0800H BYTE CODE SIZE LIMIT; USED: 466DH BYTE (880%) *
+******************************************************************************
+
+>> 
+>> 
+>> 
+Program Size: data=80.0 xdata=0 code=18633
+LINK/LOCATE RUN COMPLETE.  3 WARNING(S),  0 ERROR(S)
+
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?_WRITESZ2?KS0108
+
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?PR?_DISPBMP1?KS0108
+
+*** WARNING L16: UNCALLED SEGMENT, IGNORED FOR OVERLAY PROCESS
+    SEGMENT: ?CO?TEST7279
+
+*** FATAL ERROR L250: CODE SIZE LIMIT IN RESTRICTED VERSION EXCEEDED
+    MODULE:  C:\KEIL\C51\LIB\C51S.LIB (-----)
+    LIMIT:   0800H BYTES

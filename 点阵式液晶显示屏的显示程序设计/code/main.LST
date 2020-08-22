@@ -1,0 +1,177 @@
+C51 COMPILER V8.08   MAIN                                                                  07/06/2016 22:32:25 PAGE 1   
+
+
+C51 COMPILER V8.08, COMPILATION OF MODULE MAIN
+OBJECT MODULE PLACED IN main.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\c51.exe main.c DB OE BR
+
+line level    source
+
+   1          #include "c8051f020.h" 
+   2          #include <intrins.h> 
+   3          void Delay1us(unsigned char us)//延时us
+   4          {
+   5   1              while (us)
+   6   1              {
+   7   2                _nop_(); _nop_(); _nop_(); _nop_(); _nop_();
+   8   2                --us;
+   9   2              }
+  10   1      }
+  11          void SYSCLK_Init (void)//系统时钟初始化
+  12          {
+  13   1         int i;                              // delay counter
+  14   1         OSCXCN = 0x67;                      // start external oscillator with
+  15   1                                             // 18.432MHz crystal
+  16   1         for (i=0; i < 256; i++) ;           // Wait for osc. to start up
+  17   1         while (!(OSCXCN & 0x80)) ;          // Wait for crystal osc. to settle
+  18   1         OSCICN = 0x88;                      // select external oscillator as SYSCLK
+  19   1                                             // source and enable missing clock
+  20   1                                             // detector
+  21   1                                                                                      //      OSCICN = 0x07;   //interal 16MHZ
+  22   1      }
+  23          #define PRT0CF P0MDOUT
+  24          #define PRT1CF P1MDOUT
+  25          #define PRT2CF P2MDOUT
+  26          void PORT_Init (void)                 //串口初始化
+  27          {
+  28   1         XBR0    = 0x07;                     // Enable SMBus, SPI0, and UART0
+  29   1         XBR1    = 0x00;
+  30   1         XBR2    = 0x44;                     // Enable crossbar and weak pull-ups
+  31   1         EMI0CF  = 0x27;
+  32   1         EMI0TC  = 0x21;
+  33   1         P74OUT  = 0xFF;
+  34   1         P0MDOUT = 0x15;
+  35   1       P1MDOUT |= 0x3C;                                       //P1.2-P1.5推挽输出
+  36   1         P1 &= 0xc3;                                                  //P1.2-P1.5=0
+  37   1      }
+  38          void SPI0_Init (void)                  //spi0初始化
+  39          {
+  40   1         SPI0CFG = 0x07;                     // data sampled on 1st SCK rising edge
+  41   1                                             // 8-bit data words
+  42   1         SPI0CFG|=0xC0;       //CKPOL =1;
+  43   1      
+  44   1         SPI0CN = 0x03;                      // Master mode; SPI enabled; flags
+  45   1                                             // cleared
+  46   1         SPI0CKR = SYSCLK/2/8000000-1;       // SPI clock <= 8MHz (limited by 
+  47   1                                             // EEPROM spec.)
+  48   1      }
+  49          unsigned char Count1ms;
+  50          void Timer0_Init (void)                //计数器0初始化
+  51          {
+  52   1              CKCON|=0x8;
+  53   1              TMOD|=0x1;      //16Bit
+  54   1              Count1ms=10;
+  55   1              TR0 = 0;                                // STOP Timer0
+C51 COMPILER V8.08   MAIN                                                                  07/06/2016 22:32:25 PAGE 2   
+
+  56   1              TH0 = (-SYSCLK/1000) >> 8;              // set Timer0 to overflow in 1ms
+  57   1              TL0 = -SYSCLK/1000;
+  58   1              TR0 = 1;        // START Timer0
+  59   1              IE|= 0x2; 
+  60   1      }
+  61          void Timer0_ISR (void) interrupt 1  //1ms  
+  62          {
+  63   1              TH0 = (-SYSCLK/1000) >> 8;  
+  64   1              TL0 = -SYSCLK/1000;
+  65   1              if (Count1ms) Count1ms--;
+  66   1      }
+  67          void Delay1ms(unsigned char T)        //延时1ms
+  68          {
+  69   1              Count1ms=T;
+  70   1              while (Count1ms);
+  71   1      }
+  72          void Delay1s(unsigned char T)        //延时1s
+  73          {
+  74   1              while (T)
+  75   1              {
+  76   2                      Delay1ms(200);
+  77   2                      Delay1ms(200);
+  78   2                      Delay1ms(200);
+  79   2                      Delay1ms(200);
+  80   2                      Delay1ms(200);
+  81   2                      T--;
+  82   2              }
+  83   1      }
+  84          void TestLCD(void);//测试初始画面
+  85          char GetKeyValue(void);//获取键值
+  86          void init_adc(void);
+  87          unsigned int GetADCValue(char No);
+  88          void Display (char *DispBuf,char ShowDot,char x,char y);
+  89          void menulcd ();
+  90          void zuoyouyi();
+  91          void caiji();
+  92          void miaobiao();
+  93          void calc();
+  94          void main (void) 
+  95          {
+  96   1              char i;
+  97   1              unsigned int u;
+  98   1              char Num;
+  99   1              WDTCN = 0xde;
+ 100   1              WDTCN = 0xad;           //关看门狗
+ 101   1              SYSCLK_Init ();         //初始化时钟
+ 102   1              Timer0_Init();                  //初始化定时器
+ 103   1              PORT_Init ();           //初始化IO口
+ 104   1              SPI0_Init ();           //初始化SPI0
+ 105   1          init_adc();
+ 106   1              CPT1CN|=0x80;   //使能比较器1
+ 107   1              REF0CN = 0x07;  //使能片内参考电压
+ 108   1              DAC0CN |= 0x80; //使能DAC0
+ 109   1              DAC0H=0;        DAC0L=0;
+ 110   1          EA=1;                                       //开中断
+ 111   1          Num=0;
+ 112   1          menulcd ();
+ 113   1              u= GetADCValue(Num);//获取按键值
+ 114   1              for (;;)
+ 115   1      
+ 116   1              {
+ 117   2                      i=GetKeyValue();
+C51 COMPILER V8.08   MAIN                                                                  07/06/2016 22:32:25 PAGE 3   
+
+ 118   2                      if ((i>=0)&&(i<=5))
+ 119   2                              Num=i;
+ 120   2                      else
+ 121   2                              Num=0;
+ 122   2      
+ 123   2                      Delay1ms(100);
+ 124   2                      if (Num==0)
+ 125   2                      {
+ 126   3                              menulcd ();//按0显示主菜单
+ 127   3                      }
+ 128   2                      else if(Num==1)
+ 129   2                      {
+ 130   3                              TestLCD();//按1进入字符方式
+ 131   3                      }
+ 132   2                      else if(Num==2)
+ 133   2                      {
+ 134   3                              zuoyouyi();//按2图片方式
+ 135   3                      }
+ 136   2                      else if(Num==3)
+ 137   2                      {
+ 138   3                              caiji();//按3采集温度，电压，压力
+ 139   3                      }
+ 140   2                      else if(Num==4)
+ 141   2                      {
+ 142   3                              miaobiao();//按4时钟
+ 143   3                      }
+ 144   2                      else if(Num==5)
+ 145   2                      {
+ 146   3                              calc();//按5计算器
+ 147   3                      }
+ 148   2                      u = GetADCValue(Num);
+ 149   2              }
+ 150   1      }
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    301    ----
+   CONSTANT SIZE    =   ----    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =      1       3
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

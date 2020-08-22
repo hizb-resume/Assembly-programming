@@ -1,0 +1,571 @@
+C51 COMPILER V6.23a  I2C                                                                   07/07/2015 19:01:43 PAGE 1   
+
+
+C51 COMPILER V6.23a, COMPILATION OF MODULE I2C
+OBJECT MODULE PLACED IN I2C.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\c51.exe I2C.c DB OE BR
+
+stmt level    source
+
+   1          #include <c8051f020.h>                                  // SFR declarations
+   2          #include <intrins.h>
+   3          //------------------------------------------------------------------------------------
+   4          // Global CONSTANTS
+   5          //------------------------------------------------------------------------------------
+   6          
+   7          #define         WRITE   0x00                                            // SMBus WRITE command
+   8          #define         READ    0x01                                            // SMBus READ command
+   9          
+  10          // Device addresses (7 bits, lsb is a don't care)
+  11          #define         CLOCK3530_ADDRESS_RESET         0x60            //1 ack
+  12          #define         CLOCK3530_ADDRESS_STATUS        0x62            //2 ack
+  13          #define         CLOCK3530_ADDRESS_DATEHOUR      0x64            //8 ack  year month day week hour minute second
+  14          #define         CLOCK3530_ADDRESS_HOUR          0x66            //4 ack  hour minute second
+  15          #define         CLOCK3530_ADDRESS_INT1          0x68            //3 ack  
+  16          #define         CLOCK3530_ADDRESS_INT2          0x6A            //3 ack  
+  17          
+  18          union 
+  19          {
+  20          unsigned char ClockString[7];
+  21          struct RealClock
+  22                  {
+  23                          unsigned char Year,Month,Day,Week,Hour,Minute,Second;
+  24                  } RT;
+  25          } RealTime;
+  26          
+  27          
+  28          // SMBus states:
+  29          // MT = Master Transmitter
+  30          // MR = Master Receiver
+  31          #define SMB_BUS_ERROR   0x00                    // (all modes) BUS ERROR
+  32          #define SMB_START               0x08                    // (MT & MR) START transmitted
+  33          #define SMB_RP_START    0x10                    // (MT & MR) repeated START
+  34          #define SMB_MTADDACK    0x18                    // (MT) Slave address + W transmitted;
+  35                                                                                          //  ACK received
+  36          #define SMB_MTADDNACK   0x20                    // (MT) Slave address + W transmitted;
+  37                                                                                          //  NACK received
+  38          #define SMB_MTDBACK             0x28                    // (MT) data byte transmitted; ACK rec'vd
+  39          #define SMB_MTDBNACK    0x30                    // (MT) data byte transmitted; NACK rec'vd
+  40          #define SMB_MTARBLOST   0x38                    // (MT) arbitration lost
+  41          #define SMB_MRADDACK    0x40                    // (MR) Slave address + R transmitted;
+  42                                                                                          //  ACK received
+  43          #define SMB_MRADDNACK   0x48                    // (MR) Slave address + R transmitted;
+  44                                                                                          //  NACK received
+  45          #define SMB_MRDBACK             0x50                    // (MR) data byte rec'vd; ACK transmitted
+  46          #define SMB_MRDBNACK    0x58                    // (MR) data byte rec'vd; NACK transmitted
+  47          
+  48          
+  49          //-----------------------------------------------------------------------------------
+  50          //Global VARIABLES
+  51          //-----------------------------------------------------------------------------------
+  52          char COMMAND;                   // Holds the slave address + R/W bit for use in the SMBus ISR.
+  53          
+  54          unsigned char *I2CDataBuff;                                             
+  55          
+C51 COMPILER V6.23a  I2C                                                                   07/07/2015 19:01:43 PAGE 2   
+
+  56          char BYTE_NUMBER;                                                       // Used by ISR to check what data has just been
+  57                                                                                                          // sent - High address byte, Low byte, or data byte
+  58          
+  59          unsigned char HIGH_ADD, LOW_ADD;                // High & Low byte for EEPROM memory address
+  60                                          
+  61          bit SM_BUSY;                                                            // This bit is set when a send or receive
+  62                                                                                                          // is started. It is cleared by the
+  63                                                                                                          // ISR when the operation is finished.
+  64          
+  65          
+  66          //------------------------------------------------------------------------------------
+  67          // Function PROTOTYPES
+  68          //------------------------------------------------------------------------------------
+  69          
+  70          void SMBus_ISR (void);                                                          
+  71          
+  72          //------------------------------------------------------------------------------------
+  73          // MAIN Routine
+  74          //------------------------------------------------------------------------------------
+  75          //
+  76          // Main routine configures the crossbar and SMBus, and tests
+  77          // the SMBus interface between the three EEPROMs
+  78          
+  79          
+  80          void ResetRealClock(void)
+  81          {
+  82   1              while (SM_BUSY);                                                                        // Wait for SMBus to be free.
+  83   1              SM_BUSY = 1;                                                                            // Occupy SMBus (set to busy)
+  84   1              SMB0CN = 0x44;                                                                          // SMBus enabled, ACK on acknowledge cycle
+  85   1              BYTE_NUMBER = 0;                                                                        // 2 address bytes.
+  86   1              COMMAND = (CLOCK3530_ADDRESS_RESET | READ);             // Chip select + READ
+  87   1              STA = 1;                                                                                        // Start transfer
+  88   1              while (SM_BUSY);                                                                        // Wait for transfer to finish
+  89   1      }
+  90          
+  91          //======================写S-3530A内部实时数据寄存器程序=====================
+  92          //功能：将设定年、月、日、星期、时、分、秒数据写入S-3530A                  |
+  93          //入口：发送数据放在年、月、日、星期、时、分、秒各寄存器                   |
+  94          //出口：NONE                                                               |
+  95          //==========================================================================
+  96          void SetRealClock(void)
+  97          {
+  98   1              while (SM_BUSY);                                                                        // Wait for SMBus to be free.
+  99   1              SM_BUSY = 1;                                                                            // Occupy SMBus (set to busy)
+ 100   1              SMB0CN = 0x44;                                                                          // SMBus enabled, ACK on acknowledge cycle
+ 101   1              BYTE_NUMBER = 7;                                                                        // 2 address bytes.
+ 102   1              COMMAND = (CLOCK3530_ADDRESS_DATEHOUR | WRITE);         // Chip select + WRITE
+ 103   1              I2CDataBuff = &RealTime.ClockString[0];                         // Data to be writen
+ 104   1              STA = 1;                                                                                        // Start transfer
+ 105   1      }
+ 106          
+ 107          //==================读S-3530A实时数据寄存器子程序===========================
+ 108          //功能：从S-3530A读入当前时间数据                                          |
+ 109          //入口：NONE                                                               |
+ 110          //出口：接收数据放在年、月、日、星期、时、分、秒各寄存器                   |
+ 111          //==========================================================================
+ 112          void GetRealClock(void)
+ 113          {
+ 114   1              while (SM_BUSY);                                                                        // Wait for SMBus to be free.
+ 115   1              SM_BUSY = 1;                                                                            // Occupy SMBus (set to busy)
+ 116   1              SMB0CN = 0x44;                                                                          // SMBus enabled, ACK on acknowledge cycle
+ 117   1              BYTE_NUMBER = 7;                                                                        // 2 address bytes.
+C51 COMPILER V6.23a  I2C                                                                   07/07/2015 19:01:43 PAGE 3   
+
+ 118   1              COMMAND = (CLOCK3530_ADDRESS_DATEHOUR | READ);          // Chip select + READ
+ 119   1              I2CDataBuff = &RealTime.ClockString[0];                         // Data to be writen
+ 120   1              STA = 1;                                                                                        // Start transfer
+ 121   1              while (SM_BUSY);                                                                        // Wait for transfer to finish
+ 122   1      }
+ 123          
+ 124          //============================写状态寄存器程序==============================
+ 125          //功能：读/写S-3530A状态寄存器，对S-3530A进行设置                          |
+ 126          //入口：NONE           出口：NONE                                          |
+ 127          //==========================================================================
+ 128          unsigned char  GetRealClockStatus(void)
+ 129          {
+ 130   1              unsigned char result; 
+ 131   1              while (SM_BUSY);                                                                        // Wait for SMBus to be free.
+ 132   1              SM_BUSY = 1;                                                                            // Occupy SMBus (set to busy)
+ 133   1              SMB0CN = 0x44;                                                                          // SMBus enabled, ACK on acknowledge cycle
+ 134   1              BYTE_NUMBER = 1;                                                                        
+ 135   1              COMMAND = (CLOCK3530_ADDRESS_STATUS | READ);            
+ 136   1              I2CDataBuff = &result;                                                          
+ 137   1              STA = 1;                                                                                        // Start transfer
+ 138   1              while (SM_BUSY);                                                                        // Wait for transfer to finish
+ 139   1              return result;
+ 140   1      }
+ 141          void SetRealClockStatus(unsigned char status)
+ 142          {
+ 143   1              while (SM_BUSY);                                                                        // Wait for SMBus to be free.
+ 144   1              SM_BUSY = 1;                                                                            // Occupy SMBus (set to busy)
+ 145   1              SMB0CN = 0x44;                                                                          // SMBus enabled, ACK on acknowledge cycle
+ 146   1              BYTE_NUMBER = 1;                                                                        
+ 147   1              COMMAND = (CLOCK3530_ADDRESS_STATUS | WRITE);           
+ 148   1              I2CDataBuff = &status;                                                          
+ 149   1              STA = 1;                                                                                        // Start transfer
+ 150   1      }
+ 151          /*
+ 152          void  SetRealClockINT1(unsigned int Int1)
+ 153          {
+ 154                  while (SM_BUSY);                                                                        // Wait for SMBus to be free.
+ 155                  SM_BUSY = 1;                                                                            // Occupy SMBus (set to busy)
+ 156                  SMB0CN = 0x44;                                                                          // SMBus enabled, ACK on acknowledge cycle
+ 157                  BYTE_NUMBER = 2;                                                                        
+ 158                  COMMAND = (CLOCK3530_ADDRESS_INT1 | WRITE);             
+ 159                  I2CDataBuff = (unsigned char*)&Int1;                                                            
+ 160                  STA = 1;                                                                                        // Start transfer
+ 161          }
+ 162          */
+ 163          #include "INTRINS.H"
+ 164          
+ 165          unsigned char revolve(unsigned char val)
+ 166          {
+ 167   1      char i;
+ 168   1      unsigned char val1=0;
+ 169   1              for (i=0;i<8;i++)
+ 170   1              {
+ 171   2                      if (val&0x1)
+ 172   2                              val1++;
+ 173   2                      val1=_crol_(val1,1);
+ 174   2                      val=_cror_(val,1);
+ 175   2              }
+ 176   1              val1=_cror_(val1,1);
+ 177   1              return val1;
+ 178   1      }
+ 179          
+C51 COMPILER V6.23a  I2C                                                                   07/07/2015 19:01:43 PAGE 4   
+
+ 180          /*--  文字:  时  --*/
+ 181          
+ 182          char code Shi[]=
+ 183          {
+ 184                  0x00,0x00,0xFC,0x44,0x44,0xFC,0x00,0x08,0x48,0x88,0x08,0xFF,0x08,0x08,0x08,0x00,
+ 185                  0x00,0x00,0x1F,0x04,0x04,0x0F,0x00,0x00,0x00,0x11,0x20,0x1F,0x00,0x00,0x00,0x00,
+ 186          };
+ 187          
+ 188          /*--  文字:  钟  --*/
+ 189          char code Zhong[]=
+ 190          {
+ 191                  0x00,0x60,0x38,0xE7,0x24,0x24,0x04,0x00,0xF8,0x88,0x88,0xFF,0x88,0x88,0xF8,0x00,
+ 192                  0x00,0x01,0x01,0x3F,0x11,0x09,0x01,0x00,0x01,0x00,0x00,0x3F,0x00,0x00,0x01,0x00,
+ 193          };
+ 194          
+ 195          char code mao1[]=          //冒号
+ 196          {
+ 197          0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 198          0x00,0x00,0x36,0x36,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
+ 199          };
+ 200          void LCD_WriteHZ(char x,char y,char *Dot);
+ 201          void LCD_DispChar(char x,char y,char ch); //128*64  取值x=0-128 y=0-8
+ 202          void    InitLCD(void);
+ 203          void Delay1ms(unsigned char T);
+ 204          
+ 205          void TestI2C (void)
+ 206          {
+ 207   1      unsigned char var ;
+ 208   1      char KeyValue;
+ 209   1              WDTCN = 0xde;                                                                   // disable watchdog timer
+ 210   1              WDTCN = 0xad;
+ 211   1              
+ 212   1              OSCICN |= 0x03;                                                         // Set internal oscillator to highest setting
+ 213   1                                                                                                                      // (16 MHz)
+ 214   1      
+ 215   1              XBR0 |= 0x07;                                                                   // Route SMBus to GPIO pins through crossbar
+ 216   1              XBR2 |= 0x44;                                                                   // Enable crossbar and weak pull-ups
+ 217   1      
+ 218   1          P0MDOUT |= 0x1D; 
+ 219   1          P1MDOUT |= 0x01; 
+ 220   1              
+ 221   1              SMB0CN = 0x44;                                                                  // Enable SMBus with ACKs on acknowledge cycle
+ 222   1              SMB0CR = -80;                                                                   // SMBus clock rate = 100kHz.
+ 223   1      
+ 224   1              EIE1 |= 2;                                                                              // SMBus interrupt enable
+ 225   1              EA = 1;                                                                                 // Global interrupt enable
+ 226   1      
+ 227   1              SM_BUSY = 0;                                                                    // Free SMBus for first transfer.
+ 228   1      
+ 229   1      //      SetRealClockINT1(0x8000);
+ 230   1              var = GetRealClockStatus();
+ 231   1              ResetRealClock();
+ 232   1              var = GetRealClockStatus();
+ 233   1              SetRealClockStatus(0xc2);
+ 234   1              var = GetRealClockStatus();
+ 235   1              GetRealClock();
+ 236   1              RealTime.RT.Year=0x15;  
+ 237   1              RealTime.RT.Month=0x7;  
+ 238   1              RealTime.RT.Day=0x06;   
+ 239   1              RealTime.RT.Week=0x05;  
+ 240   1              RealTime.RT.Hour=0x14;  
+ 241   1              RealTime.RT.Minute=0x40;        
+C51 COMPILER V6.23a  I2C                                                                   07/07/2015 19:01:43 PAGE 5   
+
+ 242   1              RealTime.RT.Second=0x50;        
+ 243   1              SetRealClock();
+ 244   1              GetRealClock();
+ 245   1              InitLCD();
+ 246   1              LCD_WriteHZ(0,0,Shi); 
+ 247   1              LCD_WriteHZ(16,0,Zhong); 
+ 248   1      //在0，2处显示00:00:00
+ 249   1              LCD_DispChar(0,2,0); //128*64  取值x=0-128 y=0-8
+ 250   1              LCD_DispChar(8,2,0);
+ 251   1              LCD_DispChar(16,2,10);
+ 252   1          LCD_WriteHZ(17,2,mao1);
+ 253   1              LCD_DispChar(24,2,0);
+ 254   1              LCD_DispChar(32,2,0);
+ 255   1              LCD_DispChar(40,2,0xa);
+ 256   1              LCD_WriteHZ(41,2,mao1);
+ 257   1              LCD_DispChar(48,2,0);
+ 258   1              LCD_DispChar(56,2,0);
+ 259   1      //在0，4处显示02/01/01
+ 260   1              LCD_DispChar(0,4,0); //128*64  取值x=0-128 y=0-8
+ 261   1              LCD_DispChar(8,4,2);
+ 262   1              LCD_DispChar(16,4,0xb);
+ 263   1              LCD_WriteHZ(17,4,mao1);
+ 264   1              LCD_DispChar(24,4,0);
+ 265   1              LCD_DispChar(32,4,1);
+ 266   1              LCD_DispChar(40,4,0xb);
+ 267   1              LCD_WriteHZ(41,4,mao1);
+ 268   1              LCD_DispChar(48,4,0);
+ 269   1              LCD_DispChar(56,4,1);
+ 270   1              for (;;)
+ 271   1              {     //GetRealClock();
+ 272   2                
+ 273   2                      KeyValue=GetKeyValue();
+*** WARNING C206 IN LINE 273 OF I2C.C: 'GetKeyValue': missing function-prototype
+ 274   2                         WaitKeyOff();
+*** WARNING C206 IN LINE 274 OF I2C.C: 'WaitKeyOff': missing function-prototype
+ 275   2                              
+ 276   2              if(KeyValue==1)
+ 277   2             RealTime.RT.Year++;
+ 278   2                 else if(KeyValue==5)
+ 279   2                 RealTime.RT.Year--;
+ 280   2                 else if(KeyValue==2)
+ 281   2             RealTime.RT.Month++;
+ 282   2              else if(KeyValue==6)
+ 283   2                      RealTime.RT.Month--;
+ 284   2                      else if(KeyValue==3)
+ 285   2             RealTime.RT.Day++;
+ 286   2              else if(KeyValue==7)
+ 287   2             RealTime.RT.Day--;
+ 288   2             else if(KeyValue==8)
+ 289   2             RealTime.RT.Hour++;
+ 290   2                 else if(KeyValue==12)
+ 291   2             RealTime.RT.Hour--;
+ 292   2               else if(KeyValue==9)
+ 293   2               RealTime.RT.Minute++;
+ 294   2               else if(KeyValue==13)
+ 295   2              RealTime.RT.Minute--;
+ 296   2             else if(KeyValue==10)
+ 297   2               RealTime.RT.Second++;
+ 298   2               else if(KeyValue==14)
+ 299   2               RealTime.RT.Second--;
+ 300   2           else if(KeyValue==0)break;
+ 301   2               else if(KeyValue==15) {
+C51 COMPILER V6.23a  I2C                                                                   07/07/2015 19:01:43 PAGE 6   
+
+ 302   3              for (;;){ GetRealClock();
+ 303   4                      LCD_DispChar(0,2,(RealTime.RT.Hour>>4)&0x03);//(RealTime.RT.Hour>>4)&0x0f); //128*64  取值x=0-128 y=0-8
+ 304   4                      LCD_DispChar(8,2,RealTime.RT.Hour&0x0f);
+ 305   4                      LCD_DispChar(24,2,(RealTime.RT.Minute>>4)&0x0f);
+ 306   4                      LCD_DispChar(32,2,RealTime.RT.Minute&0x0f);
+ 307   4                      LCD_DispChar(48,2,(RealTime.RT.Second>>4)&0x0f);
+ 308   4                      LCD_DispChar(56,2,RealTime.RT.Second&0x0f);
+ 309   4                      //在0，4处显示02/01/01
+ 310   4                      LCD_DispChar(0,4,(RealTime.RT.Year>>4)&0x0f); 
+ 311   4                      LCD_DispChar(8,4,RealTime.RT.Year&0x0f);
+ 312   4                      LCD_DispChar(24,4,(RealTime.RT.Month>>4)&0x0f);
+ 313   4                      LCD_DispChar(32,4,RealTime.RT.Month&0x0f);
+ 314   4                      LCD_DispChar(48,4,(RealTime.RT.Day>>4)&0x0f);
+ 315   4                      LCD_DispChar(56,4,RealTime.RT.Day&0x0f);
+ 316   4                      Delay1ms(100);
+ 317   4                      KeyValue=GetKeyValue();
+ 318   4              
+ 319   4                      if(KeyValue!=-1)
+ 320   4                      break;} }
+ 321   2                      LCD_DispChar(0,2,(RealTime.RT.Hour>>4)&0x03);//(RealTime.RT.Hour>>4)&0x0f); //128*64  取值x=0-128 y=0-8
+ 322   2                      LCD_DispChar(8,2,RealTime.RT.Hour&0x0f);
+ 323   2                      LCD_DispChar(24,2,(RealTime.RT.Minute>>4)&0x0f);
+ 324   2                      LCD_DispChar(32,2,RealTime.RT.Minute&0x0f);
+ 325   2                      LCD_DispChar(48,2,(RealTime.RT.Second>>4)&0x0f);
+ 326   2                      LCD_DispChar(56,2,RealTime.RT.Second&0x0f);
+ 327   2                      //在0，4处显示02/01/01
+ 328   2                      LCD_DispChar(0,4,(RealTime.RT.Year>>4)&0x0f); 
+ 329   2                      LCD_DispChar(8,4,RealTime.RT.Year&0x0f);
+ 330   2                      LCD_DispChar(24,4,(RealTime.RT.Month>>4)&0x0f);
+ 331   2                      LCD_DispChar(32,4,RealTime.RT.Month&0x0f);
+ 332   2                      LCD_DispChar(48,4,(RealTime.RT.Day>>4)&0x0f);
+ 333   2                      LCD_DispChar(56,4,RealTime.RT.Day&0x0f);
+ 334   2                      SetRealClock();
+ 335   2                      Delay1ms(100);
+ 336   2                      
+ 337   2                      //KeyValue=GetKeyValue();
+ 338   2              //KeyValue=GetKeyValue();
+ 339   2          //if(KeyValue!=-1)
+ 340   2             // break;
+ 341   2              }
+ 342   1          
+ 343   1      }
+ 344          
+ 345          
+ 346          //------------------------------------------------------------------------------------
+ 347          // Interrupt Service Routine
+ 348          //------------------------------------------------------------------------------------
+ 349          void SMBUS_ISR (void) interrupt 7
+ 350          {
+ 351   1              switch (SMB0STA)
+ 352   1                      {       // SMBus 状态码SMB0STA 寄存器
+ 353   2                              // 主发送器/接收器起始条件已发送
+ 354   2                      case SMB_START:
+ 355   2                              SMB0DAT = COMMAND ; // 装入要访问的从器件的地址
+ 356   2                              STA = 0;                        // 手动清除START 位
+ 357   2                              break;
+ 358   2                              //主发送器/接收器重复起始条件已发送
+ 359   2                              // 该状态只应在读操作期间出现在存储器地址已发送并得到确认之后 ?
+ 360   2                      case SMB_RP_START:
+ 361   2                              SMB0DAT = COMMAND; // COMMAND 中应保持从地址 + R.
+ 362   2                              STA = 0;
+ 363   2                              break;
+C51 COMPILER V6.23a  I2C                                                                   07/07/2015 19:01:43 PAGE 7   
+
+ 364   2                              // 主发送器从地址 + WRITE 已发送收到ACK
+ 365   2                      case SMB_MTADDACK:
+ 366   2                              // 主发送器数据字节已发送收到ACK
+ 367   2                      case SMB_MTDBACK:
+ 368   2                              if (BYTE_NUMBER)
+ 369   2                              {
+ 370   3                                              SMB0DAT = revolve(*I2CDataBuff);                                        // If R/W=WRITE, load byte to write.
+ 371   3                                              I2CDataBuff++;
+ 372   3                                              BYTE_NUMBER--;                  
+ 373   3                              }
+ 374   2                              else
+ 375   2                              {
+ 376   3                                      STO = 1;        SM_BUSY = 0;                                            // Free SMBus
+ 377   3                              }
+ 378   2                              break;
+ 379   2                              // 主发送器从地址 + WRITE 已发送收到NACK
+ 380   2                              // 从器件不应答发送STOP + START 重试
+ 381   2                      case SMB_MTADDNACK:
+ 382   2                              STO = 1;                        STA = 1;
+ 383   2                      break;
+ 384   2                              // 主发送器数据字节已发送收到NACK
+ 385   2                              // 从器件不应答发送STOP + START 重试
+ 386   2                      case SMB_MTDBNACK:
+ 387   2                              STO = 1;                        STA = 1;
+ 388   2                      break;
+ 389   2                              // 主发送器竞争失败
+ 390   2                              // 不应出现如果出现重新开始传输过程
+ 391   2                      case SMB_MTARBLOST:
+ 392   2                              STO = 1;                        STA = 1;
+ 393   2                      break;
+ 394   2      
+ 395   2                              // 主接收器从地址 + READ 已发送,收到ACK
+ 396   2                      case SMB_MRADDACK:
+ 397   2                              AA = 1; // 在应答周期ACK
+ 398   2                              if (!BYTE_NUMBER)
+ 399   2                              {       
+ 400   3                                      STO = 1;        SM_BUSY = 0; // 释放SMBus
+ 401   3                              }
+ 402   2                      break;
+ 403   2                              // 主接收器从地址 + READ 已发送收到NACK
+ 404   2                              // 从器件不应答发送重复起始条件重试
+ 405   2                      case SMB_MRADDNACK:
+ 406   2                              STA = 1;
+ 407   2                      break;
+ 408   2                              // 收到数据字节ACK 已发送
+ 409   2                              // 该状态不应出现因为AA 已在前一状态被清0 如果出现发送停止条件
+ 410   2                      case SMB_MRDBACK:
+ 411   2                              if (BYTE_NUMBER)
+ 412   2                              {
+ 413   3                                      *I2CDataBuff=revolve(SMB0DAT);          
+ 414   3                                      I2CDataBuff++;
+ 415   3                                      BYTE_NUMBER--;                  
+ 416   3                              }
+ 417   2                              if (!BYTE_NUMBER)       AA= 0;
+ 418   2                      break;
+ 419   2                              // 收到数据字节NACK 已发送
+ 420   2                              // 读操作已完成读数据寄存器后发送停止条件
+ 421   2                      case SMB_MRDBNACK:
+ 422   2                              STO = 1;
+ 423   2                              SM_BUSY = 0; // 释放SMBus
+ 424   2                      break;
+ 425   2                              // 在本应用中所有其它状态码没有意义通信复位
+C51 COMPILER V6.23a  I2C                                                                   07/07/2015 19:01:43 PAGE 8   
+
+ 426   2                      default:
+ 427   2                              STO = 1; // 通信复位
+ 428   2                              SM_BUSY = 0; 
+ 429   2                      break;
+ 430   2                      }
+ 431   1              SI=0; // 清除中断标志
+ 432   1      }
+ 433          /*
+ 434          {
+ 435                  switch (SMB0STA){                       // Status code for the SMBus (SMB0STA register)
+ 436                          case SMB_START:                                 
+ 437                                  SMB0DAT = COMMAND;                                      // COMMAND should hold slave address + R.
+ 438                                  break;
+ 439                          case SMB_MTADDNACK:
+ 440                                  STO = 1;
+ 441                                  STA = 1;
+ 442                                  break;
+ 443                          case SMB_RP_START:
+ 444          //                      SMB0DAT = COMMAND;                                      // COMMAND should hold slave address + R.
+ 445          //                      STA = 0;                                                                                        
+ 446          //                      break;
+ 447                          case SMB_MTADDACK:
+ 448                          case SMB_MTDBACK:
+ 449                                  if (BYTE_NUMBER)
+ 450                                  {
+ 451                                                  if (COMMAND & 0x01)                                     // If R/W=READ, 
+ 452                                                  {
+ 453                                                          STA = 1;
+ 454                                                  }
+ 455                                                  else
+ 456                                                  {
+ 457                                                          SMB0DAT = *I2CDataBuff;                                 // If R/W=WRITE, load byte to write.
+ 458                                                          I2CDataBuff++;
+ 459                                                          BYTE_NUMBER--;                  
+ 460                                                  }
+ 461                                  }
+ 462                                  else
+ 463                                  {
+ 464                                          STO = 1;
+ 465                                          SM_BUSY = 0;                                            // Free SMBus
+ 466                                  }
+ 467                                  break;
+ 468                          
+ 469                          // Master Transmitter: Data byte transmitted.  NACK received.
+ 470                          // Slave not responding.  Send STOP followed by START to try again.
+ 471                          case SMB_MTDBNACK:
+ 472                                  STO = 1;
+ 473                                  STA = 1;
+ 474                                  break;
+ 475                          
+ 476                          // Master Transmitter: Arbitration lost.
+ 477                          // Should not occur.  If so, restart transfer.
+ 478                          case SMB_MTARBLOST:
+ 479                                  STO = 1;
+ 480                                  STA = 1;
+ 481                                  break;
+ 482          
+ 483                          // Master Receiver: Slave address + READ transmitted.  NACK received.
+ 484                          // Slave not responding.  Send repeated start to try again.
+ 485                          case SMB_MRADDNACK:
+ 486                                  STA = 1;
+ 487                                  break;
+C51 COMPILER V6.23a  I2C                                                                   07/07/2015 19:01:43 PAGE 9   
+
+ 488          
+ 489                          // Data byte received.  ACK transmitted.
+ 490                          // State should not occur because AA is set to zero in previous state.
+ 491                          // Send STOP if state does occur.
+ 492                          case SMB_MRDBACK:
+ 493                                  STO = 1;
+ 494                                  SM_BUSY = 0;
+ 495                                  break;
+ 496          
+ 497                          // Master Receiver: Slave address + READ transmitted.  ACK received.
+ 498                          // Set to transmit NACK after next transfer since it will be the last (only) byte.
+ 499                          case SMB_MRADDACK:
+ 500          //                      AA = 0;                                                                         // NACK sent on acknowledge cycle.
+ 501          //                      break;
+ 502          
+ 503                          // Data byte received.  NACK transmitted.
+ 504                          // Read operation has completed.  Read data register and send STOP.
+ 505                          case SMB_MRDBNACK:
+ 506                                  if (BYTE_NUMBER)
+ 507                                  {
+ 508                                                  if (COMMAND & 0x01)                                     // If R/W=READ, 
+ 509                                                  {
+ 510                                                          *I2CDataBuff=SMB0DAT;           
+ 511                                                          I2CDataBuff++;
+ 512                                                  }
+ 513                                                  BYTE_NUMBER--;                  
+ 514                                  }
+ 515                                  else
+ 516                                  {
+ 517                                          STO = 1;
+ 518                                          SM_BUSY = 0;                                            // Free SMBus
+ 519                                  }
+ 520                                  break;
+ 521                          // All other status codes meaningless in this application. Reset communication.
+ 522                          default:
+ 523                                  STO = 1;                                                                                // Reset communication.
+ 524                                  SM_BUSY = 0;
+ 525                                  break;
+ 526                          }
+ 527                  
+ 528                  SI=0;                                                                                                   // clear interrupt flag
+ 529          }
+ 530          */
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =   1175    ----
+   CONSTANT SIZE    =     96    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =     14       3
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =      1    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  2 WARNING(S),  0 ERROR(S)

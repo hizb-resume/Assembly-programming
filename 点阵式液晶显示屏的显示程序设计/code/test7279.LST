@@ -1,0 +1,107 @@
+C51 COMPILER V8.08   TEST7279                                                              07/06/2016 22:32:25 PAGE 1   
+
+
+C51 COMPILER V8.08, COMPILATION OF MODULE TEST7279
+OBJECT MODULE PLACED IN test7279.OBJ
+COMPILER INVOKED BY: C:\Keil\C51\BIN\c51.exe test7279.c DB OE BR
+
+line level    source
+
+   1          #include "c8051f020.h" 
+   2          #include <intrins.h>
+   3          
+   4          sbit    HD7279_DAT=P1^7;
+   5          sbit    HD7279_CLK=P1^6;
+   6          
+   7          #define NOSELECT7279    P5 |= 0x80              //SPICS4(P57)=1
+   8          #define SELECT7279      P5 &= ~(0x80)   //SPICS4(P57)=0;
+   9          #define Set7279DAT      HD7279_DAT=1
+  10          #define Clr7279DAT      HD7279_DAT=0
+  11          #define Set7279CLK      HD7279_CLK=1
+  12          #define Clr7279CLK      HD7279_CLK=0
+  13          void Delay1ms(unsigned char T);
+  14          void Delay1s(unsigned char T);
+  15          void Delay1us(unsigned char T);
+  16          void Send7279Byte(unsigned char ch)//发送
+  17          {       
+  18   1              char i;
+  19   1              SELECT7279;             //置CS低电平 
+  20   1              Delay1us(50);           //延时50μ
+  21   1              
+  22   1              for (i=0;i<8;i++)
+  23   1              {       
+  24   2                      if (ch&0x80)    //输出7位到HD7279A的DATA端 
+  25   2                      {
+  26   3                              Set7279DAT;
+  27   3                      }
+  28   2                      else
+  29   2                      {
+  30   3                              Clr7279DAT;
+  31   3                      }
+  32   2                      Set7279CLK;             //置CLK高电平 
+  33   2                      ch=ch<<1;               //待发数据左移 
+  34   2                      Delay1us(8);    //延时8μ
+  35   2                      Clr7279CLK;             //置CLK低电平 
+  36   2                      Delay1us(8);    //延时50μ
+  37   2              }
+  38   1              Clr7279DAT;                     //发送完毕，DATA端置低，返回 
+  39   1      }
+  40          unsigned char Receive7279Byte(void)//接收
+  41          {
+  42   1              unsigned char i,ch;
+  43   1              ch=0;           
+  44   1              Set7279DAT;                     //DATA端置为高电平，输入状态
+  45   1              Delay1us(50);           //延时50μ
+  46   1              for (i=0;i<8;i++)
+  47   1              {
+  48   2                      Set7279CLK;             //置CLK高电平
+  49   2                      Delay1us(8);    //延时8μ
+  50   2                      ch=ch<<1;               //接收数据左移1位
+  51   2                      if (HD7279_DAT)
+  52   2                              ch+=1;          //接收1位数据
+  53   2                      Clr7279CLK;             //置CLK低电平
+  54   2                      Delay1us(8);    //延时8μ
+  55   2              }
+C51 COMPILER V8.08   TEST7279                                                              07/06/2016 22:32:25 PAGE 2   
+
+  56   1              Clr7279DAT;                     //接收完毕，DATA端重新置成低电平(输出状态)
+  57   1              return ch;
+  58   1      }
+  59          
+  60          
+  61          
+  62          unsigned char code BdSeg[]={
+  63                                                  0x7e,0x30,0x6d,0x79, // 0 1 2 3 
+  64                                  0x33,0x5b,0x5f,0x70, // 4 5 6 7
+  65                                  0x7f,0x7b,0x77,0x1f, // 8 9 a b
+  66                                  0x4e,0x3d,0x4f,0x47, // c d e f
+  67                                  0x00,0x01}; 
+  68          char GetKeyValue(void)//获取键值
+  69          {
+  70   1              char KeyValue;
+  71   1              if (CPT1CN&0x40) return -1;     //无键按下 
+  72   1              Send7279Byte(0x15);     //发读键盘指令 
+  73   1              KeyValue=Receive7279Byte();
+  74   1              NOSELECT7279;           //置CS高电平 
+  75   1              return KeyValue; 
+  76   1      }
+  77          
+  78          void WaitKeyOff(void)
+  79          {
+  80   1              while  (!(CPT1CN&0x40));
+  81   1      }
+  82          
+
+
+MODULE INFORMATION:   STATIC OVERLAYABLE
+   CODE SIZE        =    136    ----
+   CONSTANT SIZE    =     18    ----
+   XDATA SIZE       =   ----    ----
+   PDATA SIZE       =   ----    ----
+   DATA SIZE        =   ----       4
+   IDATA SIZE       =   ----    ----
+   BIT SIZE         =   ----    ----
+END OF MODULE INFORMATION.
+
+
+C51 COMPILATION COMPLETE.  0 WARNING(S),  0 ERROR(S)

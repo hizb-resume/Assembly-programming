@@ -1,0 +1,4 @@
+"C:\Users\hizengbiao\Desktop\曾彪 +时钟+计算器ok33\ADC.obj",
+"C:\Users\hizengbiao\Desktop\曾彪 +时钟+计算器ok33\ks0108.obj",
+"C:\Users\hizengbiao\Desktop\曾彪 +时钟+计算器ok33\main.obj",
+"C:\Users\hizengbiao\Desktop\曾彪 +时钟+计算器ok33\test7279.obj"  TO "C:\Users\hizengbiao\Desktop\曾彪 +时钟+计算器ok33\keshe" RS(256) PL(68) PW(78) 
